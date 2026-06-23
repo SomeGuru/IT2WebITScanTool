@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-IT2Innovations Web IT Scan Tool
+IT2Innovations Web IT Scan Tool v1.0.3
 For educational and authorized security testing purposes only.
 Always obtain proper authorization before scanning any website.
 
@@ -38,13 +38,63 @@ import shutil
 # Suppress SSL warnings
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
-# Version info - VERSION 1.0.2
-CURRENT_VERSION = "1.0.2"
+# Version info - VERSION 1.0.3
+CURRENT_VERSION = "1.0.3"
 GITHUB_REPO = "someguru/IT2WebITScanTool"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 UPDATE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 RELEASES_API = f"{GITHUB_API}/releases/latest"
 VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/version.txt"
+
+# Global icon path
+ICON_PATH = None
+
+def get_icon_path():
+    """Get or download the icon path"""
+    global ICON_PATH
+    
+    if ICON_PATH and os.path.exists(ICON_PATH):
+        return ICON_PATH
+    
+    # Check multiple locations
+    possible_paths = [
+        os.path.join(os.path.dirname(sys.executable), "it2_icon.ico") if getattr(sys, 'frozen', False) else None,
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "it2_icon.ico"),
+        os.path.join(tempfile.gettempdir(), "it2_icon.ico"),
+        "it2_icon.ico"
+    ]
+    
+    # Remove None values
+    possible_paths = [p for p in possible_paths if p]
+    
+    # Check if icon exists in any location
+    for path in possible_paths:
+        if os.path.exists(path):
+            ICON_PATH = path
+            return ICON_PATH
+    
+    # Download icon if not found
+    try:
+        icon_url = "http://www.it2innovations.com/images/favicon.ico"
+        download_path = os.path.join(tempfile.gettempdir(), "it2_icon.ico")
+        
+        # Download with retry
+        for attempt in range(3):
+            try:
+                urllib.request.urlretrieve(icon_url, download_path)
+                if os.path.exists(download_path) and os.path.getsize(download_path) > 0:
+                    ICON_PATH = download_path
+                    return ICON_PATH
+            except:
+                if attempt == 2:
+                    raise
+                continue
+        
+    except Exception as e:
+        print(f"Failed to download icon: {e}")
+    
+    return None
+
 
 class SecurityScanner:
     """Backend scanner class"""
@@ -551,11 +601,9 @@ class AutoUpdater:
     def download_update(self, download_url, progress_callback=None):
         """Download the update file"""
         try:
-            # Create temp directory for download
             temp_dir = tempfile.gettempdir()
-            new_exe_path = os.path.join(temp_dir, f"IT2WebITScanTool_{self.current_version}_update.exe")
+            new_exe_path = os.path.join(temp_dir, f"IT2WebITScanTool_update.exe")
             
-            # Download with progress
             response = requests.get(download_url, stream=True)
             total_size = int(response.headers.get('content-length', 0))
             
@@ -598,7 +646,7 @@ class AutoUpdater:
             subprocess.Popen(
                 batch_script,
                 shell=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
             
             return True
@@ -613,11 +661,9 @@ class SecurityScannerGUI:
         self.root = root
         self.root.title(f"IT2Innovations Web IT Scan Tool v{CURRENT_VERSION}")
         self.root.geometry("1200x800")
-        
-        # Set minimum window size
         self.root.minsize(1000, 600)
         
-        # Set taskbar icon properly for Windows
+        # CRITICAL: Set icon BEFORE anything else
         self.setup_app_icon()
         
         # Configure style
@@ -650,45 +696,70 @@ class SecurityScannerGUI:
         self.scanning = False
         self.scanner = None
         self.icon_image = None
+        self.icon_photo = None
         self.updater = AutoUpdater(CURRENT_VERSION, GITHUB_REPO)
         
         self.setup_ui()
         
-        # Check for updates on startup (silently, show dialog only if update available)
+        # Check for updates on startup
         self.root.after(1500, self.check_for_updates_silent)
     
     def setup_app_icon(self):
-        """Setup application icon for window and taskbar"""
+        """Setup application icon for window, taskbar, and all dialogs"""
         try:
-            # Download icon if not exists
-            icon_path = os.path.join(tempfile.gettempdir(), "it2_icon.ico")
+            icon_path = get_icon_path()
             
-            if not os.path.exists(icon_path):
-                icon_url = "http://www.it2innovations.com/images/favicon.ico"
-                urllib.request.urlretrieve(icon_url, icon_path)
+            if not icon_path:
+                print("Warning: Could not find or download icon")
+                return
             
-            # Set icon for window
-            self.root.iconbitmap(default=icon_path)
+            print(f"Using icon: {icon_path}")
             
-            # Set AppUserModelID for Windows taskbar
-            if sys.platform == 'win32':
-                try:
-                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                        'IT2Innovations.WebITScanTool.1.0'
-                    )
-                except:
-                    pass
+            # Method 1: Set window icon (most important for title bar)
+            try:
+                self.root.iconbitmap(default=icon_path)
+            except Exception as e:
+                print(f"iconbitmap failed: {e}")
             
-            # Also try with PIL for better compatibility
+            # Method 2: Set with PhotoImage (for taskbar and alt text)
             try:
                 img = Image.open(icon_path)
-                self.icon_image = ImageTk.PhotoImage(img)
-                self.root.iconphoto(True, self.icon_image)
-            except:
-                pass
+                self.icon_photo = ImageTk.PhotoImage(img)
+                self.root.iconphoto(True, self.icon_photo)
+            except Exception as e:
+                print(f"PhotoImage failed: {e}")
+            
+            # Method 3: Set AppUserModelID for Windows 7+ taskbar
+            if sys.platform == 'win32':
+                try:
+                    # This must be called BEFORE the window is shown
+                    app_id = 'IT2Innovations.IT2WebITScanTool.1.0'
+                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+                except Exception as e:
+                    print(f"AppUserModelID failed: {e}")
+                
+                # Method 4: Set icon for the window class
+                try:
+                    # Load icon for Windows
+                    import win32gui
+                    import win32con
+                    
+                    hwnd = self.root.winfo_id()
+                    # This sets both the window icon and taskbar icon
+                    icon_handle = win32gui.LoadImage(
+                        0, icon_path, win32con.IMAGE_ICON, 0, 0, 
+                        win32con.LR_LOADFROMFILE | win32con.LR_DEFAULTSIZE
+                    )
+                    if icon_handle:
+                        win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_SMALL, icon_handle)
+                        win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_BIG, icon_handle)
+                except ImportError:
+                    pass  # win32gui not available
+                except Exception as e:
+                    print(f"Win32 icon set failed: {e}")
                 
         except Exception as e:
-            print(f"Could not set icon: {e}")
+            print(f"Complete icon setup failed: {e}")
     
     def setup_ui(self):
         """Setup the user interface"""
@@ -759,8 +830,6 @@ class SecurityScannerGUI:
             width=50
         )
         self.url_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 10))
-        
-        # Bind Enter key to start scan
         self.url_entry.bind('<Return>', lambda e: self.start_scan())
         
         # Buttons
@@ -949,6 +1018,14 @@ class SecurityScannerGUI:
         """Show update status dialog"""
         update_dialog = tk.Toplevel(self.root)
         
+        # Set dialog icon
+        icon_path = get_icon_path()
+        if icon_path:
+            try:
+                update_dialog.iconbitmap(icon_path)
+            except:
+                pass
+        
         if up_to_date:
             update_dialog.title("You're Up to Date!")
             dialog_height = 400
@@ -959,8 +1036,6 @@ class SecurityScannerGUI:
         update_dialog.geometry(f"500x{dialog_height}")
         update_dialog.configure(bg=self.colors['bg'])
         update_dialog.resizable(False, False)
-        
-        # Make it modal
         update_dialog.transient(self.root)
         update_dialog.grab_set()
         
@@ -970,14 +1045,6 @@ class SecurityScannerGUI:
         y = self.root.winfo_y() + (self.root.winfo_height() - dialog_height) // 2
         update_dialog.geometry(f"+{x}+{y}")
         
-        # Set icon
-        try:
-            icon_path = os.path.join(tempfile.gettempdir(), "it2_icon.ico")
-            if os.path.exists(icon_path):
-                update_dialog.iconbitmap(icon_path)
-        except:
-            pass
-        
         if up_to_date:
             self.build_up_to_date_content(update_dialog, update_info)
         else:
@@ -985,192 +1052,129 @@ class SecurityScannerGUI:
     
     def build_up_to_date_content(self, dialog, update_info):
         """Build content for up-to-date dialog"""
-        # Title
         tk.Label(
-            dialog,
-            text="You're Up to Date!",
+            dialog, text="You're Up to Date!",
             font=('Helvetica', 16, 'bold'),
-            bg=self.colors['bg'],
-            fg=self.colors['success']
+            bg=self.colors['bg'], fg=self.colors['success']
         ).pack(pady=(30, 10))
         
-        # Checkmark
         tk.Label(
-            dialog,
-            text="✓",
+            dialog, text="\u2713",
             font=('Helvetica', 48),
-            bg=self.colors['bg'],
-            fg=self.colors['success']
+            bg=self.colors['bg'], fg=self.colors['success']
         ).pack(pady=10)
         
-        # Info
         info_frame = tk.Frame(dialog, bg=self.colors['bg'])
         info_frame.pack(fill=tk.BOTH, padx=30, pady=10)
         
         tk.Label(
             info_frame,
             text=f"Current Version: v{update_info.get('current_version', CURRENT_VERSION)}",
-            font=('Helvetica', 11),
-            bg=self.colors['bg'],
-            fg=self.colors['fg']
+            font=('Helvetica', 11), bg=self.colors['bg'], fg=self.colors['fg']
         ).pack(pady=5)
         
         tk.Label(
             info_frame,
             text=f"Latest Version: v{update_info.get('latest_version', CURRENT_VERSION)}",
-            font=('Helvetica', 11),
-            bg=self.colors['bg'],
-            fg=self.colors['success']
+            font=('Helvetica', 11), bg=self.colors['bg'], fg=self.colors['success']
         ).pack(pady=5)
         
         tk.Label(
             info_frame,
             text="No update is needed at this time.",
-            font=('Helvetica', 10),
-            bg=self.colors['bg'],
-            fg=self.colors['fg']
+            font=('Helvetica', 10), bg=self.colors['bg'], fg=self.colors['fg']
         ).pack(pady=20)
         
-        # Close button
-        close_btn = tk.Button(
-            dialog,
-            text="Close",
-            font=('Helvetica', 11),
-            bg=self.colors['select_bg'],
-            fg=self.colors['fg'],
-            relief=tk.FLAT,
-            padx=30,
-            pady=10,
-            cursor='hand2',
+        tk.Button(
+            dialog, text="Close", font=('Helvetica', 11),
+            bg=self.colors['select_bg'], fg=self.colors['fg'],
+            relief=tk.FLAT, padx=30, pady=10, cursor='hand2',
             command=dialog.destroy
-        )
-        close_btn.pack(pady=20)
+        ).pack(pady=20)
     
     def build_update_available_content(self, dialog, update_info):
         """Build content for update available dialog"""
-        # Title
         tk.Label(
-            dialog,
-            text="Update Available!",
+            dialog, text="Update Available!",
             font=('Helvetica', 16, 'bold'),
-            bg=self.colors['bg'],
-            fg=self.colors['warning']
+            bg=self.colors['bg'], fg=self.colors['warning']
         ).pack(pady=(30, 10))
         
-        # Warning icon
         tk.Label(
-            dialog,
-            text="⬆",
+            dialog, text="\u2B06",
             font=('Helvetica', 48),
-            bg=self.colors['bg'],
-            fg=self.colors['warning']
+            bg=self.colors['bg'], fg=self.colors['warning']
         ).pack(pady=10)
         
-        # Version info
         info_frame = tk.Frame(dialog, bg=self.colors['bg'])
         info_frame.pack(fill=tk.BOTH, padx=30, pady=10)
         
         tk.Label(
-            info_frame,
-            text="Current Version:",
-            font=('Helvetica', 10, 'bold'),
-            bg=self.colors['bg'],
-            fg=self.colors['fg']
+            info_frame, text="Current Version:",
+            font=('Helvetica', 10, 'bold'), bg=self.colors['bg'], fg=self.colors['fg']
         ).pack(anchor=tk.W)
         
         tk.Label(
             info_frame,
             text=f"v{update_info['current_version']}",
-            font=('Helvetica', 12),
-            bg=self.colors['bg'],
-            fg=self.colors['info']
+            font=('Helvetica', 12), bg=self.colors['bg'], fg=self.colors['info']
         ).pack(anchor=tk.W, pady=(0, 10))
         
         tk.Label(
-            info_frame,
-            text="Latest Version:",
-            font=('Helvetica', 10, 'bold'),
-            bg=self.colors['bg'],
-            fg=self.colors['fg']
+            info_frame, text="Latest Version:",
+            font=('Helvetica', 10, 'bold'), bg=self.colors['bg'], fg=self.colors['fg']
         ).pack(anchor=tk.W)
         
         tk.Label(
             info_frame,
             text=f"v{update_info['latest_version']}",
-            font=('Helvetica', 12),
-            bg=self.colors['bg'],
-            fg=self.colors['warning']
+            font=('Helvetica', 12), bg=self.colors['bg'], fg=self.colors['warning']
         ).pack(anchor=tk.W, pady=(0, 15))
         
-        # Separator
         tk.Frame(info_frame, height=1, bg=self.colors['info']).pack(fill=tk.X, pady=10)
         
-        # Release notes
         if update_info.get('release_notes'):
             tk.Label(
-                info_frame,
-                text="What's New:",
-                font=('Helvetica', 10, 'bold'),
-                bg=self.colors['bg'],
-                fg=self.colors['fg']
+                info_frame, text="What's New:",
+                font=('Helvetica', 10, 'bold'), bg=self.colors['bg'], fg=self.colors['fg']
             ).pack(anchor=tk.W, pady=(0, 5))
             
             notes_text = tk.Text(
-                info_frame,
-                height=8,
-                width=55,
-                font=('Helvetica', 9),
-                bg=self.colors['select_bg'],
-                fg=self.colors['fg'],
-                relief=tk.FLAT,
-                wrap=tk.WORD
+                info_frame, height=8, width=55, font=('Helvetica', 9),
+                bg=self.colors['select_bg'], fg=self.colors['fg'],
+                relief=tk.FLAT, wrap=tk.WORD
             )
             notes_text.pack(fill=tk.BOTH, pady=(0, 10))
             notes_text.insert('1.0', update_info['release_notes'][:500])
             notes_text.config(state='disabled')
         
-        # Auto update checkbox
         auto_update_var = tk.BooleanVar(value=True)
-        auto_cb = tk.Checkbutton(
-            info_frame,
-            text="Auto-install after download",
+        tk.Checkbutton(
+            info_frame, text="Auto-install after download",
             variable=auto_update_var,
-            bg=self.colors['bg'],
-            fg=self.colors['fg'],
+            bg=self.colors['bg'], fg=self.colors['fg'],
             selectcolor=self.colors['select_bg'],
             activebackground=self.colors['bg'],
             activeforeground=self.colors['fg']
-        )
-        auto_cb.pack(anchor=tk.W, pady=5)
+        ).pack(anchor=tk.W, pady=5)
         
-        # Progress bar for download
-        download_progress = ttk.Progressbar(
-            info_frame,
-            mode='determinate',
-            length=400
-        )
+        download_progress = ttk.Progressbar(info_frame, mode='determinate', length=400)
         download_progress.pack(fill=tk.X, pady=5)
-        download_progress.pack_forget()  # Hidden initially
+        download_progress.pack_forget()
         
         progress_label = tk.Label(
-            info_frame,
-            text="",
-            font=('Helvetica', 9),
-            bg=self.colors['bg'],
-            fg=self.colors['info']
+            info_frame, text="", font=('Helvetica', 9),
+            bg=self.colors['bg'], fg=self.colors['info']
         )
         progress_label.pack()
-        progress_label.pack_forget()  # Hidden initially
+        progress_label.pack_forget()
         
-        # Button frame
         button_frame = tk.Frame(dialog, bg=self.colors['bg'])
         button_frame.pack(pady=20)
         
         def update_now():
-            """Download and optionally install the update"""
             download_btn.config(state='disabled')
             close_btn.config(state='disabled')
-            
             download_progress.pack(fill=tk.X, pady=5)
             progress_label.pack()
             progress_label.config(text="Downloading update...")
@@ -1180,11 +1184,9 @@ class SecurityScannerGUI:
                 progress_label.config(text=f"Downloading: {percent}%")
                 dialog.update_idletasks()
             
-            # Download in thread
             def download_thread():
                 new_exe = self.updater.download_update(
-                    update_info['download_url'],
-                    progress_callback
+                    update_info['download_url'], progress_callback
                 )
                 
                 if new_exe:
@@ -1198,7 +1200,7 @@ class SecurityScannerGUI:
                             progress_label.config(text="Update installed! Restarting...")
                             dialog.after(1500, self.root.quit)
                         else:
-                            progress_label.config(text="Install failed. Please update manually.")
+                            progress_label.config(text="Install failed. Opening download page...")
                             webbrowser.open(update_info['release_url'])
                     else:
                         progress_label.config(text="Download complete!")
@@ -1217,29 +1219,19 @@ class SecurityScannerGUI:
             threading.Thread(target=download_thread, daemon=True).start()
         
         download_btn = tk.Button(
-            button_frame,
-            text="Update Now",
+            button_frame, text="Update Now",
             font=('Helvetica', 11, 'bold'),
-            bg=self.colors['button_bg'],
-            fg=self.colors['button_fg'],
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-            cursor='hand2',
+            bg=self.colors['button_bg'], fg=self.colors['button_fg'],
+            relief=tk.FLAT, padx=20, pady=10, cursor='hand2',
             command=update_now
         )
         download_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         close_btn = tk.Button(
-            button_frame,
-            text="Remind Later",
+            button_frame, text="Remind Later",
             font=('Helvetica', 11),
-            bg=self.colors['select_bg'],
-            fg=self.colors['fg'],
-            relief=tk.FLAT,
-            padx=20,
-            pady=10,
-            cursor='hand2',
+            bg=self.colors['select_bg'], fg=self.colors['fg'],
+            relief=tk.FLAT, padx=20, pady=10, cursor='hand2',
             command=dialog.destroy
         )
         close_btn.pack(side=tk.LEFT)
@@ -1251,47 +1243,37 @@ class SecurityScannerGUI:
         about_dialog.geometry("500x550")
         about_dialog.configure(bg=self.colors['bg'])
         about_dialog.resizable(False, False)
-        
-        # Make it modal
         about_dialog.transient(self.root)
         about_dialog.grab_set()
         
-        # Center on parent
+        # Set dialog icon
+        icon_path = get_icon_path()
+        if icon_path:
+            try:
+                about_dialog.iconbitmap(icon_path)
+            except:
+                pass
+        
         about_dialog.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - 500) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - 550) // 2
         about_dialog.geometry(f"+{x}+{y}")
         
-        # Set icon
-        try:
-            icon_path = os.path.join(tempfile.gettempdir(), "it2_icon.ico")
-            if os.path.exists(icon_path):
-                about_dialog.iconbitmap(icon_path)
-        except:
-            pass
-        
-        # Title
         tk.Label(
-            about_dialog,
-            text="IT2Innovations Web IT Scan Tool",
+            about_dialog, text="IT2Innovations Web IT Scan Tool",
             font=('Helvetica', 14, 'bold'),
-            bg=self.colors['bg'],
-            fg=self.colors['info']
+            bg=self.colors['bg'], fg=self.colors['info']
         ).pack(pady=(30, 5))
         
         tk.Label(
-            about_dialog,
-            text=f"Version {CURRENT_VERSION}",
+            about_dialog, text=f"Version {CURRENT_VERSION}",
             font=('Helvetica', 11),
-            bg=self.colors['bg'],
-            fg=self.colors['fg']
+            bg=self.colors['bg'], fg=self.colors['fg']
         ).pack(pady=(0, 20))
         
-        # Info frame
         info_frame = tk.Frame(about_dialog, bg=self.colors['bg'])
         info_frame.pack(fill=tk.BOTH, padx=40)
         
-        # Creator info
         details = [
             ("Creator:", "Mike Larios"),
             ("Engineering Validation:", "Mike Larios"),
@@ -1304,31 +1286,23 @@ class SecurityScannerGUI:
             row_frame.pack(fill=tk.X, pady=2)
             
             tk.Label(
-                row_frame,
-                text=label,
+                row_frame, text=label,
                 font=('Helvetica', 10, 'bold'),
-                bg=self.colors['bg'],
-                fg=self.colors['fg']
+                bg=self.colors['bg'], fg=self.colors['fg']
             ).pack(side=tk.LEFT)
             
             tk.Label(
-                row_frame,
-                text=value,
+                row_frame, text=value,
                 font=('Helvetica', 10),
-                bg=self.colors['bg'],
-                fg=self.colors['info']
+                bg=self.colors['bg'], fg=self.colors['info']
             ).pack(side=tk.LEFT, padx=(5, 0))
         
-        # Separator
         tk.Frame(info_frame, height=2, bg=self.colors['info']).pack(fill=tk.X, pady=15)
         
-        # Legal warning
         tk.Label(
-            info_frame,
-            text="IMPORTANT LEGAL NOTICE",
+            info_frame, text="IMPORTANT LEGAL NOTICE",
             font=('Helvetica', 11, 'bold'),
-            bg=self.colors['bg'],
-            fg=self.colors['high']
+            bg=self.colors['bg'], fg=self.colors['high']
         ).pack(pady=(5, 10))
         
         legal_text = (
@@ -1347,26 +1321,15 @@ class SecurityScannerGUI:
         )
         
         tk.Label(
-            info_frame,
-            text=legal_text,
-            font=('Helvetica', 9),
-            bg=self.colors['bg'],
-            fg=self.colors['fg'],
-            wraplength=420,
-            justify=tk.LEFT
+            info_frame, text=legal_text,
+            font=('Helvetica', 9), bg=self.colors['bg'],
+            fg=self.colors['fg'], wraplength=420, justify=tk.LEFT
         ).pack(pady=(0, 15))
         
-        # Close button
         tk.Button(
-            about_dialog,
-            text="Close",
-            font=('Helvetica', 11),
-            bg=self.colors['select_bg'],
-            fg=self.colors['fg'],
-            relief=tk.FLAT,
-            padx=30,
-            pady=10,
-            cursor='hand2',
+            about_dialog, text="Close", font=('Helvetica', 11),
+            bg=self.colors['select_bg'], fg=self.colors['fg'],
+            relief=tk.FLAT, padx=30, pady=10, cursor='hand2',
             command=about_dialog.destroy
         ).pack(pady=(0, 20))
     
@@ -1374,35 +1337,17 @@ class SecurityScannerGUI:
         """Show usage guide"""
         usage_text = (
             "USAGE GUIDE\n\n"
-            "1. Enter the target URL in the input field\n"
-            "2. Click 'Start Scan' to begin scanning\n"
-            "3. Confirm that you have authorization to scan the target\n"
-            "4. Wait for the scan to complete\n"
-            "5. Review vulnerabilities in the left panel\n"
-            "6. Click on vulnerabilities to see details\n"
-            "7. Filter by severity using the dropdown\n"
-            "8. Export results to JSON using the Export button\n\n"
-            "FEATURES:\n"
-            "• SSL/TLS Configuration Check\n"
-            "• Security Headers Analysis\n"
-            "• CORS Configuration Check\n"
-            "• Information Disclosure Detection\n"
-            "• Clickjacking Protection Check\n"
-            "• XSS Protection Analysis\n"
-            "• Cookie Security Check\n"
-            "• Server Information Disclosure\n"
-            "• Directory Listing Check\n"
-            "• Form Security Analysis\n"
-            "• Outdated Components Detection\n"
-            "• CSRF Protection Check\n"
-            "• SQL Injection Indicators\n\n"
+            "1. Enter the target URL\n"
+            "2. Click 'Start Scan'\n"
+            "3. Confirm authorization\n"
+            "4. Review vulnerabilities\n"
+            "5. Filter by severity\n"
+            "6. Export to JSON\n\n"
             "AUTO-UPDATE:\n"
-            "The tool automatically checks for updates on startup.\n"
-            "When an update is available, you'll see a dialog with\n"
-            "the option to download and install the update automatically.\n\n"
-            "For more information, visit our GitHub repository."
+            "The tool checks for updates on startup.\n"
+            "Updates can be downloaded and installed automatically.\n\n"
+            "For more info, visit our GitHub repository."
         )
-        
         messagebox.showinfo("Usage Guide", usage_text)
     
     def start_scan(self):
@@ -1417,99 +1362,77 @@ class SecurityScannerGUI:
             url = 'https://' + url
             self.target_url.set(url)
         
-        # Show authorization warning
         warning_msg = (
             "LEGAL WARNING\n\n"
-            "This program is a testing tool, Pen Testing tool, and a tool used\n"
-            "to exploit vulnerabilities of weakened or compromised websites.\n\n"
-            "This can get you in trouble if you are not authorized by the\n"
-            "site/ISP/Owner of the domain you are testing against.\n\n"
-            "All legal ramifications will be on you, not any companies, persons,\n"
-            "or devices mentioned in this file.\n\n"
-            "Do you have explicit authorization to scan this target?"
+            "This tool is for authorized security testing only.\n"
+            "Unauthorized use may be illegal.\n\n"
+            "Do you have authorization to scan this target?"
         )
         
         if not messagebox.askyesno("Authorization Required", warning_msg, icon='warning'):
             return
         
         self.clear_results()
-        
         self.scan_button.config(state='disabled')
         self.stop_button.config(state='normal')
         self.export_button.config(state='disabled')
         self.url_entry.config(state='disabled')
         self.filter_combo.config(state='disabled')
-        
         self.progress_bar.start(10)
         self.progress_var.set("Initializing scanner...")
         self.status_var.set("Scanning...")
-        
         self.scanning = True
+        
         scan_thread = threading.Thread(target=self.run_scan, args=(url,))
         scan_thread.daemon = True
         scan_thread.start()
     
     def run_scan(self, url):
-        """Run scan in thread"""
         try:
-            self.scanner = SecurityScanner(
-                url,
-                progress_callback=self.update_progress
-            )
+            self.scanner = SecurityScanner(url, progress_callback=self.update_progress)
             self.scanner.scan()
             self.root.after(0, self.scan_complete)
         except Exception as e:
             self.root.after(0, self.scan_error, str(e))
     
     def update_progress(self, message):
-        """Update progress from thread"""
         self.root.after(0, lambda: self.progress_var.set(message))
         self.root.after(0, lambda: self.status_var.set(message))
     
     def scan_complete(self):
-        """Scan completion handler"""
         self.progress_bar.stop()
         self.progress_var.set(f"Scan complete! Found {len(self.scanner.vulnerabilities)} vulnerabilities.")
         self.status_var.set(f"Found {len(self.scanner.vulnerabilities)} vulnerabilities")
-        
         self.scan_button.config(state='normal')
         self.stop_button.config(state='disabled')
         self.export_button.config(state='normal')
         self.url_entry.config(state='normal')
         self.filter_combo.config(state='readonly')
-        
         self.populate_tree()
         self.scanning = False
     
     def scan_error(self, error_msg):
-        """Error handler"""
         self.progress_bar.stop()
         self.progress_var.set(f"Error: {error_msg}")
         self.status_var.set("Scan failed")
-        
         self.scan_button.config(state='normal')
         self.stop_button.config(state='disabled')
         self.url_entry.config(state='normal')
         self.filter_combo.config(state='readonly')
-        
         self.scanning = False
-        
-        messagebox.showerror("Scan Error", f"An error occurred during the scan:\n\n{error_msg}")
+        messagebox.showerror("Scan Error", f"An error occurred:\n\n{error_msg}")
     
     def stop_scan(self):
-        """Stop scan"""
         self.scanning = False
         self.progress_bar.stop()
-        self.progress_var.set("Scan stopped by user")
+        self.progress_var.set("Scan stopped")
         self.status_var.set("Stopped")
-        
         self.scan_button.config(state='normal')
         self.stop_button.config(state='disabled')
         self.url_entry.config(state='normal')
         self.filter_combo.config(state='readonly')
     
     def populate_tree(self, filter_severity="All"):
-        """Populate vulnerabilities tree"""
         for item in self.tree.get_children():
             self.tree.delete(item)
         
@@ -1524,20 +1447,13 @@ class SecurityScannerGUI:
         
         for vuln in sorted_vulns:
             if filter_severity == "All" or vuln['severity'].upper() == filter_severity.upper():
-                severity_tag = vuln['severity'].lower()
-                self.tree.insert(
-                    '',
-                    'end',
-                    values=(vuln['severity'], vuln['title']),
-                    tags=(severity_tag,)
-                )
+                self.tree.insert('', 'end', values=(vuln['severity'], vuln['title']),
+                               tags=(vuln['severity'].lower(),))
     
     def filter_vulnerabilities(self, event=None):
-        """Filter by severity"""
         self.populate_tree(self.filter_var.get())
     
     def on_vulnerability_select(self, event):
-        """Display vulnerability details"""
         selection = self.tree.selection()
         if not selection:
             return
@@ -1545,35 +1461,25 @@ class SecurityScannerGUI:
         item = self.tree.item(selection[0])
         title = item['values'][1]
         
-        vuln = None
         if self.scanner:
             for v in self.scanner.vulnerabilities:
                 if v['title'] == title:
-                    vuln = v
+                    self.display_vulnerability_details(v)
                     break
-        
-        if vuln:
-            self.display_vulnerability_details(vuln)
     
     def display_vulnerability_details(self, vuln):
-        """Show vulnerability details"""
         self.detail_text.delete('1.0', tk.END)
-        
         severity_tag = vuln['severity'].lower()
         
         self.detail_text.insert(tk.END, "VULNERABILITY DETAILS\n", 'heading')
         self.detail_text.insert(tk.END, "-" * 50 + "\n\n")
-        
         self.detail_text.insert(tk.END, "Title: ", 'bold')
         self.detail_text.insert(tk.END, f"{vuln['title']}\n\n")
-        
         self.detail_text.insert(tk.END, "Severity: ", 'bold')
         self.detail_text.insert(tk.END, f"{vuln['severity']}\n", severity_tag)
         self.detail_text.insert(tk.END, "\n")
-        
         self.detail_text.insert(tk.END, "Location:\n", 'bold')
         self.detail_text.insert(tk.END, f"  {vuln['location']}\n\n")
-        
         self.detail_text.insert(tk.END, "Description:\n", 'bold')
         self.detail_text.insert(tk.END, f"  {vuln['description']}\n\n")
         
@@ -1581,16 +1487,13 @@ class SecurityScannerGUI:
             self.detail_text.insert(tk.END, "Evidence:\n", 'bold')
             self.detail_text.insert(tk.END, f"  {vuln['evidence']}\n\n")
         
-        self.detail_text.insert(tk.END, "Recommended Fix:\n", 'bold')
+        self.detail_text.insert(tk.END, "Fix:\n", 'bold')
         self.detail_text.insert(tk.END, f"  {vuln['fix']}\n\n")
-        
-        self.detail_text.insert(tk.END, "Detected at:\n", 'bold')
+        self.detail_text.insert(tk.END, "Detected:\n", 'bold')
         self.detail_text.insert(tk.END, f"  {vuln['timestamp']}\n")
-        
         self.detail_text.see('1.0')
     
     def export_results(self):
-        """Export to JSON"""
         if not self.scanner or not self.scanner.vulnerabilities:
             messagebox.showwarning("No Results", "No scan results to export.")
             return
@@ -1604,27 +1507,17 @@ class SecurityScannerGUI:
             title="Export Scan Results"
         )
         
-        if not filename:
-            return
-        
-        try:
-            self.scanner.export_to_json(filename)
-            
-            if messagebox.askyesno(
-                "Export Complete",
-                f"Results exported successfully to:\n{filename}\n\nWould you like to open the file?",
-                icon='info'
-            ):
-                os.startfile(filename)
-            
-        except Exception as e:
-            messagebox.showerror("Export Error", f"Failed to export results:\n\n{str(e)}")
+        if filename:
+            try:
+                self.scanner.export_to_json(filename)
+                if messagebox.askyesno("Export Complete", f"Saved to:\n{filename}\n\nOpen file?"):
+                    os.startfile(filename)
+            except Exception as e:
+                messagebox.showerror("Error", f"Export failed:\n{str(e)}")
     
     def clear_results(self):
-        """Clear all results"""
         for item in self.tree.get_children():
             self.tree.delete(item)
-        
         self.detail_text.delete('1.0', tk.END)
         self.progress_var.set("Ready to scan...")
         self.status_var.set("Ready")
@@ -1634,11 +1527,11 @@ class SecurityScannerGUI:
 def main():
     root = tk.Tk()
     
-    # Set AppUserModelID before creating the window (Windows taskbar icon fix)
+    # Set AppUserModelID BEFORE creating window
     if sys.platform == 'win32':
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                'IT2Innovations.WebITScanTool.1.0'
+                'IT2Innovations.IT2WebITScanTool.1.0'
             )
         except:
             pass
