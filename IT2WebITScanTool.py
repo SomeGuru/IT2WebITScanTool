@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-IT2Innovations Web IT Scan Tool v1.0.5
+IT2Innovations Web IT Scan Tool v1.0.6
 For educational and authorized security testing purposes only.
 
 Creator: Mike Larios
@@ -38,7 +38,7 @@ import winreg
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 
 # Version
-CURRENT_VERSION = "1.0.5"
+CURRENT_VERSION = "1.0.6"
 GITHUB_REPO = "someguru/IT2WebITScanTool"
 UPDATE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
