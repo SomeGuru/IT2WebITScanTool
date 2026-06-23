@@ -1,0 +1,48 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller pillow
+    
+    - name: Download icon
+      run: |
+        python -c "import urllib.request; urllib.request.urlretrieve('http://www.it2innovations.com/images/favicon.ico', 'it2_icon.ico')"
+    
+    - name: Build EXE
+      run: |
+        pyinstaller --onefile --windowed --icon=it2_icon.ico --name=IT2WebITScanTool IT2WebITScanTool.py
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: IT2WebITScanTool
+        path: dist/IT2WebITScanTool.exe
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/IT2WebITScanTool.exe
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
