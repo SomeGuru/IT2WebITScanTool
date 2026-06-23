@@ -1,6 +1,6 @@
 # IT2Innovations Web IT Scan Tool
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![License](https://img.shields.io/badge/license-MIT%20%26%20Apache-green)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
